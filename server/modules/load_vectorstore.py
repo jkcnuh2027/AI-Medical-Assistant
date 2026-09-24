@@ -1,74 +1,54 @@
-import os
-import time
+import hashlib
 from pathlib import Path
-from dotenv import load_dotenv
-from tqdm.auto import tqdm
-from pinecone import Pinecone, ServerlessSpec
+from tempfile import TemporaryDirectory
+
+from fastapi import HTTPException
 from langchain_community.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-load_dotenv()
+from config import NAMESPACE
+from modules.vectorstore import get_embeddings, get_index
 
-GOOGLE_API_KEY=os.getenv("GOOGLE_API_KEY")
-PINECONE_API_KEY=os.getenv("PINECONE_API_KEY")
-PINECONE_ENV="us-east-1"
-PINECONE_INDEX_NAME="medicalindex"
+MAX_FILE_BYTES = 20 * 1024 * 1024
 
-os.environ["GOOGLE_API_KEY"]=GOOGLE_API_KEY
-
-UPLOAD_DIR="./uploaded_docs"
-os.makedirs(UPLOAD_DIR,exist_ok=True)
-
-
-# initialize pinecone instance
-pc=Pinecone(api_key=PINECONE_API_KEY)
-spec=ServerlessSpec(cloud="aws",region=PINECONE_ENV)
-existing_indexes=[i["name"] for i in pc.list_indexes()]
-
-
-if PINECONE_INDEX_NAME not in existing_indexes:
-    pc.create_index(
-        name=PINECONE_INDEX_NAME,
-        dimension=768,
-        metric="dotproduct",
-        spec=spec
-    )
-    while not pc.describe_index(PINECONE_INDEX_NAME).status["ready"]:
-        time.sleep(1)
-
-
-index=pc.Index(PINECONE_INDEX_NAME)
-
-# load,split,embed and upsert pdf docs content
 
 def load_vectorstore(uploaded_files):
-    embed_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    file_paths = []
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    all_chunks = []
+    with TemporaryDirectory() as directory:
+        for number, file in enumerate(uploaded_files):
+            name = Path(file.filename or "document.pdf").name
+            if not name.lower().endswith(".pdf"):
+                raise HTTPException(400, "Only PDF files are supported")
+            content = file.file.read(MAX_FILE_BYTES + 1)
+            if len(content) > MAX_FILE_BYTES:
+                raise HTTPException(413, "Each PDF must be at most 20 MB")
+            if not content.startswith(b"%PDF-"):
+                raise HTTPException(400, "Invalid PDF file")
+            path = Path(directory) / f"{number}.pdf"
+            path.write_bytes(content)
+            try:
+                documents = PyPDFLoader(str(path)).load()
+            except Exception as exc:
+                raise HTTPException(400, "Unable to read PDF") from exc
+            chunks = splitter.split_documents(documents)
+            if not chunks:
+                raise HTTPException(400, "PDF has no extractable text; scanned PDFs need OCR")
+            digest = hashlib.sha256(content).hexdigest()
+            for i, chunk in enumerate(chunks):
+                # Pinecone metadata accepts scalar values, not arbitrary PDF metadata.
+                metadata = {"text": chunk.page_content, "source": name,
+                            "page": chunk.metadata.get("page", 0)}
+                all_chunks.append((f"{digest}-{i}", chunk.page_content, metadata))
 
-    for file in uploaded_files:
-        save_path = Path(UPLOAD_DIR) / file.filename
-        with open(save_path, "wb") as f:
-            f.write(file.file.read())
-        file_paths.append(str(save_path))
-
-    for file_path in file_paths:
-        loader = PyPDFLoader(file_path)
-        documents = loader.load()
-
-        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-        chunks = splitter.split_documents(documents)
-
-        texts = [chunk.page_content for chunk in chunks]
-        metadatas = [chunk.metadata for chunk in chunks]
-        ids = [f"{Path(file_path).stem}-{i}" for i in range(len(chunks))]
-
-        print(f"🔍 Embedding {len(texts)} chunks...")
-        embeddings = embed_model.embed_documents(texts)
-
-        print("📤 Uploading to Pinecone...")
-        with tqdm(total=len(embeddings), desc="Upserting to Pinecone") as progress:
-            index.upsert(vectors=zip(ids, embeddings, metadatas))
-            progress.update(len(embeddings))
-
-        print(f"✅ Upload complete for {file_path}")
+    if not all_chunks:
+        raise HTTPException(400, "Upload at least one PDF")
+    embeddings = get_embeddings()
+    index = get_index(create=True)
+    for start in range(0, len(all_chunks), 64):
+        batch = all_chunks[start:start + 64]
+        vectors = embeddings.embed_documents([item[1] for item in batch])
+        index.upsert(vectors=[
+            {"id": item[0], "values": vector, "metadata": item[2]}
+            for item, vector in zip(batch, vectors, strict=True)
+        ], namespace=NAMESPACE)

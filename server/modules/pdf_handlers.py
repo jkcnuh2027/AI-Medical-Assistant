@@ -1,16 +1,20 @@
-import os
 import shutil
-from fastapi import UploadFile
 import tempfile
+from pathlib import Path
 
-UPLOAD_DIR="./uploaded_docs"
+from fastapi import UploadFile
 
-def save_uploaded_files(files:list[UploadFile])-> list[str]:
-    os.makedirs(UPLOAD_DIR,exist_ok=True)
-    file_path=[]
-    for file in files:
-        temp_path=os.path.join(UPLOAD_DIR,file.filename)
-        with open(temp_path,"wb") as f:
-            shutil.copyfileobj(file.file,f)
-        file_path.append(temp_path)
-    return file_path
+
+def save_uploaded_files(files: list[UploadFile]) -> list[str]:
+    """Save to unique generated paths. The caller must remove returned files."""
+    paths = []
+    try:
+        for file in files:
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as output:
+                paths.append(output.name)
+                shutil.copyfileobj(file.file, output)
+        return paths
+    except Exception:
+        for path in paths:
+            Path(path).unlink(missing_ok=True)
+        raise

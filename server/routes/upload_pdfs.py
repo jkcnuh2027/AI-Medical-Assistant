@@ -1,19 +1,24 @@
-from fastapi import APIRouter, UploadFile, File
-from typing import List
-from modules.load_vectorstore import load_vectorstore
+from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
+
+from modules.load_vectorstore import load_vectorstore
 from logger import logger
 
+router = APIRouter()
 
-router=APIRouter()
 
 @router.post("/upload_pdfs/")
-async def upload_pdfs(files:List[UploadFile] = File(...)):
+def upload_pdfs(files: list[UploadFile] = File(...)):
     try:
-        logger.info("Recieved uploaded files")
+        if len(files) > 10:
+            raise HTTPException(400, "Upload at most 10 PDFs at a time")
         load_vectorstore(files)
-        logger.info("Document added to vectorstore")
-        return {"messages":"Files processed and vectorstore updated"}
-    except Exception as e:
+        return {"messages": "Files processed and vectorstore updated"}
+    except HTTPException:
+        raise
+    except Exception:
         logger.exception("Error during PDF upload")
-        return JSONResponse(status_code=500,content={"error":str(e)})
+        return JSONResponse(status_code=500, content={"error": "Unable to process PDFs"})
+    finally:
+        for file in files:
+            file.file.close()

@@ -1,3 +1,4 @@
+import requests
 import streamlit as st
 from utils.api import ask_question
 
@@ -18,7 +19,11 @@ def render_chat():
         st.chat_message("user").markdown(user_input)
         st.session_state.messages.append({"role":"user","content":user_input})
 
-        response=ask_question(user_input)
+        try:
+            response=ask_question(user_input)
+        except requests.RequestException:
+            st.error("Cannot reach the backend. Please try again shortly.")
+            return
         if response.status_code==200:
             data=response.json()
             answer=data["response"]

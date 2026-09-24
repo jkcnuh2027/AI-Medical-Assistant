@@ -1,37 +1,15 @@
-# Web Framework
-fastapi
-uvicorn[standard]
-python-multipart  # for file uploads
-
-# LangChain & Ecosystem
-langchain
-langchain-community
-langchain-core
-langchain-groq
-
-# Vectorstore
-# chromadb
-pinecone
-
-# Embeddings
-# sentence-transformers
-# langchain-google-generative-ai
-langchain-google-genai
-
-# PDF Parsing
-PyPDF  # backend for PyPDFLoader via langchain_community
-
-# Environment Variables
-python-dotenv
-
-# Typing & Utilities
-pydantic
-requests
-tqdm
-
-# Logging (optional but recommended)
-loguru
-
-
-
-#  uv pip install -r requirements.txt
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+python-multipart>=0.0.18,<1
+langchain-classic>=1,<2
+langchain-community>=0.4,<0.5
+langchain-core>=1,<2
+langchain-text-splitters>=1,<2
+langchain-groq>=1,<2
+langchain-google-genai>=4,<5
+pinecone>=7,<9
+pypdf>=5,<7
+python-dotenv>=1,<2
+pydantic>=2,<3
+# Avoid SQLAlchemy 2.1.0 source metadata that older uv versions cannot parse.
+SQLAlchemy>=2.0,<2.1

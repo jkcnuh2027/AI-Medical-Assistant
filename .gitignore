@@ -1,1 +1,8 @@
 /assets
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+uploaded_docs/

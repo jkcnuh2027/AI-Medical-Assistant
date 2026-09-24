@@ -12,7 +12,7 @@ app=FastAPI(title="Medical Assistant API",description="API for AI Medical Assist
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"]
 )
@@ -28,3 +28,7 @@ app.middleware("http")(catch_exception_middleware)
 app.include_router(upload_router)
 # 2. asking query
 app.include_router(ask_router)
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
