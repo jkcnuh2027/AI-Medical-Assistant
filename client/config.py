@@ -1,3 +1,3 @@
 import os
 
-API_URL = os.getenv("API_URL", "https://medicalassistant-wl4w.onrender.com").rstrip("/")
+API_URL = "https://ai-medical-assistant-1rt9.onrender.com/"
